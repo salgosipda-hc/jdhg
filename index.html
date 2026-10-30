@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>자캐 점프</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap">
+<style>
+/* Layout: 한 화면짜리 무대. 위는 하늘, 아래는 바닥 띠, 캐릭터는 바닥 위에 서 있음 */
+:root {
+  --sky: #dcecf7;
+  --sky-low: #f6efe2;
+  --ground: #8fbf7a;
+  --ground-edge: #6e9c5c;
+  --ink: #23343f;
+  --muted: #5f7480;
+  --panel: rgba(255,255,255,.72);
+  --accent: #ff7a59;
+  --shadow: rgba(35,52,63,.28);
+  --font-display: "Jua", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-body: "Gowun Dodum", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sky: #1b2740; --sky-low: #33304a; --ground: #3f6b4a; --ground-edge: #2d523a;
+    --ink: #eef2f6; --muted: #a9b6c4; --panel: rgba(20,28,44,.72); --accent: #ff9478;
+    --shadow: rgba(0,0,0,.45); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sky: #1b2740; --sky-low: #33304a; --ground: #3f6b4a; --ground-edge: #2d523a;
+  --ink: #eef2f6; --muted: #a9b6c4; --panel: rgba(20,28,44,.72); --accent: #ff9478;
+  --shadow: rgba(0,0,0,.45); color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+/* hidden 속성이 붙은 요소는 무조건 숨김 (이 줄이 없어서 안내 문구가 계속 떠 있었음) */
+[hidden] { display: none !important; }
+body {
+  background: linear-gradient(var(--sky), var(--sky-low));
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  overflow: hidden;
+}
+.stage {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 0;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+header {
+  display: flex; flex-wrap: wrap; gap: 10px 16px;
+  align-items: center; justify-content: space-between;
+  position: relative; z-index: 2;
+}
+h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(26px, 6vw, 38px);
+  margin: 0; line-height: 1;
+  text-wrap: balance;
+}
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn {
+  font-family: var(--font-display);
+  font-size: 16px;
+  border: 2px solid var(--ink);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 7px 16px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.counter {
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  position: relative; z-index: 2;
+}
+kbd {
+  font-family: var(--font-display);
+  border: 1.5px solid var(--muted);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  padding: 0 7px;
+  font-size: 13px;
+}
+.play { flex: 1; position: relative; min-height: 240px; }
+.ground {
+  position: absolute; left: -100vw; right: -100vw; bottom: 0;
+  height: calc(64px + env(safe-area-inset-bottom, 0px));
+  background: var(--ground);
+  border-top: 5px solid var(--ground-edge);
+}
+/* 캐릭터 = 그림자 + 이미지. 위치는 JS가 transform으로 매 프레임 바꿈 */
+.hero {
+  position: absolute; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  width: min(180px, 40vw);
+  transform: translateX(-50%);
+}
+.shadow {
+  position: absolute; left: 50%; bottom: -10px;
+  width: 80%; height: 18px;
+  background: var(--shadow);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  filter: blur(2px);
+}
+.sprite {
+  display: block; width: 100%;
+  aspect-ratio: 1; max-width: 100%;
+  object-fit: contain;
+  transform-origin: 50% 100%;
+  will-change: transform;
+  pointer-events: none;
+}
+.drop {
+  position: absolute; inset: 0; z-index: 5;
+  display: grid; place-items: center;
+  background: var(--panel);
+  border: 3px dashed var(--accent);
+  font-family: var(--font-display); font-size: 24px;
+}
+</style>
+
+<div class="stage" id="stage">
+  <header>
+    <h1>자캐 점프</h1>
+    <div class="controls">
+      <label class="btn primary" for="file">사진 넣기</label>
+      <input id="file" type="file" accept="image/*" hidden>
+      <button class="btn" id="reset" type="button">기본 캐릭터</button>
+      <span class="counter" id="count">점프 0회</span>
+    </div>
+  </header>
+  <p class="hint"><kbd>Space</kbd> 또는 화면을 눌러 점프해요. 공중에서 한 번 더 누르면 2단 점프. 사진은 끌어다 놓아도 돼요.</p>
+
+  <div class="play" id="play">
+    <div class="ground"></div>
+    <div class="hero" id="hero">
+      <div class="shadow" id="shadow"></div>
+      <img class="sprite" id="sprite" alt="점프하는 캐릭터">
+    </div>
+  </div>
+
+  <div class="drop" id="drop" hidden>여기에 놓으면 이 사진으로 바뀌어요</div>
+</div>
+
+<script>
+// ── 기본 캐릭터: 같은 폴더에 있는 face.webp 이미지 파일을 불러옴 ──
+const DEFAULT_SRC = "face.webp";
+
+const sprite = document.getElementById("sprite");
+const hero = document.getElementById("hero");
+const shadow = document.getElementById("shadow");
+const countEl = document.getElementById("count");
+sprite.src = DEFAULT_SRC;
+
+// ── 사진 불러오기 (파일 선택 / 드래그 / 붙여넣기) ──
+function loadFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  const reader = new FileReader();
+  reader.onload = () => { sprite.src = reader.result; };
+  reader.readAsDataURL(file);
+}
+document.getElementById("file").addEventListener("change", e => loadFile(e.target.files[0]));
+document.getElementById("reset").addEventListener("click", e => { e.stopPropagation(); sprite.src = DEFAULT_SRC; });
+
+const drop = document.getElementById("drop");
+// 파일을 끌고 있을 때만 안내 문구를 보여줌 (들어온 횟수 - 나간 횟수로 판단)
+let dragDepth = 0;
+addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; drop.hidden = false; });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (dragDepth === 0) drop.hidden = true; });
+addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; drop.hidden = true; loadFile(e.dataTransfer.files[0]); });
+addEventListener("paste", e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (item) loadFile(item.getAsFile());
+});
+
+// ── 물리 값: 이 숫자들을 바꾸면 점프 느낌이 달라져요 ──
+const GRAVITY = 2600;     // 아래로 당기는 힘 (px/s²) — 클수록 빨리 떨어짐
+const JUMP_POWER = 980;   // 첫 점프 속도 (px/s) — 클수록 높이 뜀
+const DOUBLE_POWER = 820; // 2단 점프 속도
+const MAX_JUMPS = 2;
+
+let y = 0;          // 바닥에서 떠 있는 높이
+let vy = 0;         // 세로 속도 (위쪽이 +)
+let jumpsUsed = 0;
+let total = 0;
+let squash = 0;     // 착지/도약 순간 눌림 정도 (0~1), 시간이 지나면 0으로 돌아옴
+let spin = 0;       // 2단 점프 때 한 바퀴 도는 각도
+
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function jump() {
+  if (jumpsUsed >= MAX_JUMPS) return;
+  vy = jumpsUsed === 0 ? JUMP_POWER : DOUBLE_POWER;
+  if (jumpsUsed === 1 && !reduceMotion) spin = 360;
+  jumpsUsed++;
+  squash = -0.6; // 음수 = 위로 길쭉하게 늘어남 (stretch)
+  total++;
+  countEl.textContent = `점프 ${total}회`;
+}
+
+// 스페이스바 (페이지가 스크롤되지 않게 막기)
+addEventListener("keydown", e => {
+  if (e.code === "Space" || e.key === " ") {
+    e.preventDefault();
+    if (!e.repeat) jump();
+  }
+});
+// 화면 터치/클릭 (버튼 누를 땐 제외)
+document.getElementById("stage").addEventListener("pointerdown", e => {
+  if (e.target.closest("button, label, input")) return;
+  jump();
+});
+
+// ── 매 프레임 실행되는 게임 루프 ──
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.033); // 초 단위, 탭 전환 후 튀는 것 방지
+  last = now;
+
+  vy -= GRAVITY * dt;
+  y += vy * dt;
+
+  if (y <= 0) {           // 착지
+    if (vy < -300) squash = Math.min(1, -vy / 1400); // 세게 떨어질수록 많이 눌림
+    y = 0; vy = 0; jumpsUsed = 0;
+  }
+
+  squash += (0 - squash) * Math.min(1, dt * 12);   // 부드럽게 원래 모양으로
+  spin += (0 - spin) * Math.min(1, dt * 7);
+
+  // 눌림(squash) → 가로로 넓고 세로로 납작 / 늘어남(stretch) → 반대
+  const sx = 1 + squash * 0.28;
+  const sy = 1 - squash * 0.28;
+  hero.style.transform = `translateX(-50%) translateY(${-y}px)`;
+  sprite.style.transform = `rotate(${-spin}deg) scale(${sx}, ${sy})`;
+
+  // 그림자는 높이 올라갈수록 작고 옅어짐 (그림자는 바닥에 고정)
+  const k = Math.max(0.35, 1 - y / 420);
+  shadow.style.transform = `translateX(-50%) translateY(${y}px) scale(${k})`;
+  shadow.style.opacity = k;
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
